@@ -58,7 +58,6 @@ import {
   IoBookmarksOutline,
   IoChatbubbleOutline,
 } from 'react-icons/io5'
-import { IoMdStar } from 'react-icons/io'
 import { useLanguage } from '../contexts/LanguageContext'
 import { usePreferences } from '../contexts/PreferencesContext'
 import { FiClipboard } from 'react-icons/fi'
@@ -673,16 +672,19 @@ export default function MediaOnePage({
     </div>
   )
 
-  // Compact aggregate rating shown in the header (both mobile + desktop) — a
-  // single filled star, the 0–5 score, and the rating count. Reuses the same
-  // reviewsPage aggregate the community section below shows in full.
+  // Aggregate rating shown in the header (both mobile + desktop) — the big
+  // score number beside the full 5-star row and the rating count, matching
+  // the community-rating block further down the page. Reuses the same
+  // reviewsPage aggregate that section shows in full.
   const communityRating =
     reviewsPage.count > 0 ? (
-      <span className="inline-flex items-center gap-1.5">
-        <IoMdStar className="h-4 w-4 text-nonsprimary" />
-        <span className="text-sm font-bold text-[var(--text)]">{(reviewsPage.average / 2).toFixed(1)}</span>
-        <span className="text-xs text-[var(--text-muted)]">· {t('ratingsCountLabel', { n: reviewsPage.count.toLocaleString() })}</span>
-      </span>
+      <div className="flex items-center gap-2.5">
+        <span className="text-2xl font-bold leading-none text-[var(--text)]">{(reviewsPage.average / 2).toFixed(1)}</span>
+        <div className="flex flex-col gap-0.5">
+          <StarsSelector initialValue={reviewsPage.average} isEditable={false} size="sm" />
+          <span className="pl-1 text-[11px] leading-none text-[var(--text-muted)]">{t('ratingsCountLabel', { n: reviewsPage.count.toLocaleString() })}</span>
+        </div>
+      </div>
     ) : (
       <span className="text-xs text-[var(--text-muted)]">{t('noRatingsReviews')}</span>
     )
