@@ -58,6 +58,7 @@ import {
   IoBookmarksOutline,
   IoChatbubbleOutline,
 } from 'react-icons/io5'
+import { IoMdStar } from 'react-icons/io'
 import { useLanguage } from '../contexts/LanguageContext'
 import { usePreferences } from '../contexts/PreferencesContext'
 import { FiClipboard } from 'react-icons/fi'
@@ -606,6 +607,10 @@ export default function MediaOnePage({
     makers && makers.length > 0
       ? makers.map((m) => m.person.name).join(', ')
       : isBook ? item.author : item.director || item.author
+  // Whether the byline row has anything to show at all — hidden entirely
+  // (rather than showing a bare "Written by"/"Directed by" label) when
+  // neither credits nor the denormalized author/director are known.
+  const hasByline = Boolean(displayAuthor)
 
   // The edition currently in focus: from the ?e=<uuid> URL param, falling back to
   // the user's shelf reading-edition, then the librarian-picked primary edition.
@@ -668,6 +673,37 @@ export default function MediaOnePage({
     </div>
   )
 
+  // Compact aggregate rating shown in the header (both mobile + desktop) — a
+  // single filled star, the 0–5 score, and the rating count. Reuses the same
+  // reviewsPage aggregate the community section below shows in full.
+  const communityRating =
+    reviewsPage.count > 0 ? (
+      <span className="inline-flex items-center gap-1.5">
+        <IoMdStar className="h-4 w-4 text-nonsprimary" />
+        <span className="text-sm font-bold text-[var(--text)]">{(reviewsPage.average / 2).toFixed(1)}</span>
+        <span className="text-xs text-[var(--text-muted)]">· {t('ratingsCountLabel', { n: reviewsPage.count.toLocaleString() })}</span>
+      </span>
+    ) : (
+      <span className="text-xs text-[var(--text-muted)]">{t('noRatingsReviews')}</span>
+    )
+
+  // Favorite/save toggle (heart) — pulled out of the action-button cluster so it
+  // sits on its own beside the rating. Signed-in only.
+  const favoriteToggle = (
+    <button
+      onClick={() => patch({ favorite: !item.favorite })}
+      title={item.favorite ? t('saved') : t('save')}
+      aria-label={item.favorite ? t('saved') : t('save')}
+      className={`flex h-9 w-9 flex-shrink-0 items-center justify-center rounded-full border transition-all ${
+        item.favorite
+          ? 'border-nonsprimary bg-nonsprimary text-white'
+          : 'border-[var(--border-subtle)] bg-[var(--surface)] text-[var(--text-muted)] hover:border-nonsprimary hover:text-nonsprimary'
+      }`}
+    >
+      {item.favorite ? <IoHeart className="h-4 w-4" /> : <IoHeartOutline className="h-4 w-4" />}
+    </button>
+  )
+
   return (
     <Layout>
       <button
@@ -681,125 +717,101 @@ export default function MediaOnePage({
       {/* Compact mobile header: small cover on the left, title/byline/type/year
           on the right. The full-size cover + the desktop title block below are
           hidden on mobile so this doesn't duplicate on screen. */}
-      <div className="mb-6 flex gap-4 md:hidden">
-        <div className="relative aspect-[2/3] w-36 flex-shrink-0 overflow-hidden rounded-xl border border-[var(--border-subtle)]">
-          {coverUrl ? (
-            <img src={coverUrl} alt={displayTitle} className="h-full w-full object-cover" />
-          ) : (
-            <div className="flex h-full w-full items-center justify-center bg-[var(--container-2)]">
-              <Icon className="h-6 w-6 text-[var(--placeholder)]" />
-            </div>
-          )}
-        </div>
-        <div className="min-w-0 flex-1">
-          <div className="mb-1.5 flex flex-wrap items-center gap-1.5 text-[10px] uppercase tracking-widest text-[var(--text-muted)]">
-            <Icon className="h-3 w-3" />
-            <span>{typeLabel}</span>
-            {item.year && (
-              <>
-                <span className="text-[var(--border-strong)]">·</span>
-                <span>{item.year}</span>
-              </>
+      <div className="mb-6 md:hidden">
+        {/* Cover + title/meta/rating side by side */}
+        <div className="flex gap-4">
+          <div
+            className="relative flex-shrink-0 overflow-hidden rounded-xl border border-[var(--border-subtle)]"
+            style={{ width: 124, height: 186, minWidth: 124, minHeight: 186 }}
+          >
+            {coverUrl ? (
+              <img src={coverUrl} alt={displayTitle} className="h-full w-full object-cover" />
+            ) : (
+              <div className="flex h-full w-full items-center justify-center bg-[var(--container-2)]">
+                <Icon className="h-6 w-6 text-[var(--placeholder)]" />
+              </div>
             )}
-            {!isBook && altLangs.length > 0 && (
-              <>
-                <span className="text-[var(--border-strong)]">·</span>
-                <span className="relative inline-flex items-center gap-1">
-                  <IoLanguageOutline className="h-3 w-3 text-[var(--text-muted)]" />
-                  <select
-                    value={mediaLang}
-                    onChange={(e) => setMediaLang(e.target.value)}
-                    className="appearance-none bg-transparent pr-3 text-[10px] uppercase tracking-widest text-[var(--text-muted)] focus:outline-none cursor-pointer hover:text-[var(--text)] transition-colors"
-                  >
-                    <option value="">Default</option>
-                    {altLangs.map((lang) => (
-                      <option key={lang.code} value={lang.code}>{lang.label}</option>
-                    ))}
-                  </select>
-                  <IoChevronDown className="pointer-events-none absolute right-0 h-2.5 w-2.5" />
-                </span>
-              </>
+            <TypeBadge type={item.type} position="top-2.5 right-2.5" />
+            {canInteract && (
+              <button
+                onClick={() => setEditing(true)}
+                title={isLibrarian(user?.role) ? t('edit') : 'Suggest an edit'}
+                className="absolute bottom-2.5 right-2.5 flex h-7 w-7 items-center justify-center rounded-full bg-black/45 text-white/80 transition-colors hover:bg-black/65 hover:text-white"
+              >
+                <IoCreateOutline className="h-3.5 w-3.5" />
+              </button>
             )}
           </div>
-          <h1 className="text-xl font-bold leading-tight tracking-tight text-[var(--text)]">
-            {displayTitle}
-          </h1>
-          <p className="mt-1.5 text-sm text-[var(--text-muted)]">
-            {isBook ? t('writtenBy') : t('directedBy')}{' '}
-            {makers && makers.length > 0 ? (
-              makers.map((m, i) => (
-                <span key={m.person.uuid}>
-                  {i > 0 ? ', ' : ''}
-                  <Link to={`/p/${m.person.uuid}`} className="font-medium text-[var(--text)] hover:text-nonsprimary">
-                    {m.person.name}
+          <div className="flex min-w-0 flex-1 flex-col">
+            <div className="mb-1.5 flex flex-wrap items-center gap-1.5 text-[10px] uppercase tracking-widest text-[var(--text-muted)]">
+              {item.year && <span>{item.year}</span>}
+              {!isBook && altLangs.length > 0 && (
+                <>
+                  {item.year && <span className="text-[var(--border-strong)]">·</span>}
+                  <span className="relative inline-flex items-center gap-1">
+                    <IoLanguageOutline className="h-3 w-3 text-[var(--text-muted)]" />
+                    <select
+                      value={mediaLang}
+                      onChange={(e) => setMediaLang(e.target.value)}
+                      className="appearance-none bg-transparent pr-3 text-[10px] uppercase tracking-widest text-[var(--text-muted)] focus:outline-none cursor-pointer hover:text-[var(--text)] transition-colors"
+                    >
+                      <option value="">Default</option>
+                      {altLangs.map((lang) => (
+                        <option key={lang.code} value={lang.code}>{lang.label}</option>
+                      ))}
+                    </select>
+                    <IoChevronDown className="pointer-events-none absolute right-0 h-2.5 w-2.5" />
+                  </span>
+                </>
+              )}
+            </div>
+            <h1 className="text-xl font-bold leading-tight tracking-tight text-[var(--text)]">
+              {displayTitle}
+            </h1>
+            {hasByline && (
+              <p className="mt-1.5 text-sm text-[var(--text-muted)]">
+                {makers && makers.length > 0 ? (
+                  makers.map((m, i) => (
+                    <span key={m.person.uuid}>
+                      {i > 0 ? ', ' : ''}
+                      <Link to={`/p/${m.person.uuid}`} className="font-medium text-[var(--text-muted)] hover:text-nonsprimary">
+                        {m.person.name}
+                      </Link>
+                    </span>
+                  ))
+                ) : item.makerUuid ? (
+                  <Link to={`/p/${item.makerUuid}`} className="font-medium text-[var(--text-muted)] hover:text-nonsprimary">
+                    {isBook ? item.author : item.director || item.author}
                   </Link>
-                </span>
-              ))
-            ) : item.makerUuid ? (
-              <Link to={`/p/${item.makerUuid}`} className="font-medium text-[var(--text)] hover:text-nonsprimary">
-                {isBook ? item.author : item.director || item.author}
-              </Link>
-            ) : (
-              <span className="font-medium text-[var(--text)]">{isBook ? item.author : item.director || item.author}</span>
-            )}
-          </p>
-          {/* Shelf status control, surfaced right under the byline on mobile —
-              its original spot (below the action buttons) is desktop-only now. */}
-          {canInteract && (
-            <div className="mt-3 rounded-2xl border border-[var(--border-subtle)] bg-[var(--surface)] p-3">
-              <ShelfStatusBar
-                item={item}
-                currentStatus={status}
-                onStatusChange={(s) => {
-                  if (s === 'done') { setFinishOpen(true); return }
-                  if (s === 'dnf') { setDnfOpen(true); return }
-                  patch({ status: s })
-                }}
-                onEditProgress={status === 'active' ? () => setProgressOpen(true) : undefined}
-                onRemove={handleRemove}
-              />
-            </div>
-          )}
-
-          {canInteract && (
-            <div className="mt-3 rounded-2xl border border-[var(--border-subtle)] bg-[var(--surface)] p-3">
-              <div className="flex gap-2">
-                <button
-                  onClick={() => patch({ favorite: !item.favorite })}
-                  className={`flex h-10 flex-1 items-center justify-center gap-2 rounded-xl text-sm font-medium transition-all ${
-                    item.favorite
-                      ? 'bg-nonsprimary text-white'
-                      : 'border border-[var(--border-subtle)] bg-[var(--surface)] text-[var(--text-muted)] hover:text-[var(--text)]'
-                  }`}
-                >
-                  {item.favorite ? <IoHeart className="h-4 w-4" /> : <IoHeartOutline className="h-4 w-4" />}
-                  {item.favorite ? t('saved') : t('save')}
-                </button>
-                <button
-                  onClick={() => setShareOpen(true)}
-                  className="flex h-10 w-10 items-center justify-center rounded-xl border border-[var(--border-subtle)] bg-[var(--surface)] text-[var(--text-muted)] transition-colors hover:text-[var(--text)]"
-                >
-                  <IoShareOutline className="h-4 w-4" />
-                </button>
-                {status !== null && (
-                  <button
-                    onClick={() => { setNoteEditText(userNote); setEditingNote(true); document.getElementById('private-note-section')?.scrollIntoView({ behavior: 'smooth', block: 'center' }) }}
-                    title={t('privateNote') || 'Private note'}
-                    className="flex h-10 w-10 items-center justify-center rounded-xl border border-[var(--border-subtle)] bg-[var(--surface)] text-[var(--text-muted)] transition-colors hover:border-nonsprimary hover:text-nonsprimary"
-                  >
-                    <FiClipboard className="h-4 w-4" />
-                  </button>
+                ) : (
+                  <span className="font-medium text-[var(--text-muted)]">{isBook ? item.author : item.director || item.author}</span>
                 )}
-                <button
-                  onClick={() => setEditing(true)}
-                  title={isLibrarian(user?.role) ? t('edit') : 'Suggest an edit'}
-                  className="flex h-10 w-10 items-center justify-center rounded-xl border border-[var(--border-subtle)] bg-[var(--surface)] text-[var(--text-muted)] transition-colors hover:border-nonsprimary hover:text-nonsprimary"
-                >
-                  <IoCreateOutline className="h-4 w-4" />
-                </button>
-              </div>
+              </p>
+            )}
+            {/* Rating on the left, the personal save toggle pushed to the right. */}
+            <div className="mt-2.5 flex items-center gap-2">
+              {communityRating}
+              {canInteract && <span className="ml-auto">{favoriteToggle}</span>}
             </div>
-          )}
+            {/* Shelf status control lives in the column beside the cover so the
+                space next to it is used, rather than leaving a dead zone; the
+                bar variant is a single compact row that fits the narrow width. */}
+            {canInteract && (
+              <div className="mt-auto rounded-2xl border border-[var(--border-subtle)] bg-[var(--surface)] p-3">
+                <ShelfStatusBar
+                  item={item}
+                  currentStatus={status}
+                  onStatusChange={(s) => {
+                    if (s === 'done') { setFinishOpen(true); return }
+                    if (s === 'dnf') { setDnfOpen(true); return }
+                    patch({ status: s })
+                  }}
+                  onEditProgress={status === 'active' ? () => setProgressOpen(true) : undefined}
+                  onRemove={handleRemove}
+                />
+              </div>
+            )}
+          </div>
         </div>
       </div>
 
@@ -964,27 +976,30 @@ export default function MediaOnePage({
               </h1>
             </div>
 
-            <p className="text-sm text-[var(--text-muted)]">
-              {isBook ? t('writtenBy') : t('directedBy')}{' '}
-              {makers && makers.length > 0 ? (
-                makers.map((m, i) => (
-                  <span key={m.person.uuid}>
-                    {i > 0 ? ', ' : ''}
-                    <Link to={`/p/${m.person.uuid}`} className="font-medium text-[var(--text)] hover:text-nonsprimary">
-                      {m.person.name}
-                    </Link>
-                  </span>
-                ))
-              ) : item.makerUuid ? (
-                // No per-role credits loaded, but the row carries its primary
-                // maker's uuid (denormalized) — link the byline to their page.
-                <Link to={`/p/${item.makerUuid}`} className="font-medium text-[var(--text)] hover:text-nonsprimary">
-                  {isBook ? item.author : item.director || item.author}
-                </Link>
-              ) : (
-                <span className="font-medium text-[var(--text)]">{isBook ? item.author : item.director || item.author}</span>
-              )}
-            </p>
+            {hasByline && (
+              <p className="text-sm text-[var(--text-muted)]">
+                {isBook ? t('writtenBy') : t('directedBy')}{' '}
+                {makers && makers.length > 0 ? (
+                  makers.map((m, i) => (
+                    <span key={m.person.uuid}>
+                      {i > 0 ? ', ' : ''}
+                      <Link to={`/p/${m.person.uuid}`} className="font-medium text-[var(--text)] hover:text-nonsprimary">
+                        {m.person.name}
+                      </Link>
+                    </span>
+                  ))
+                ) : item.makerUuid ? (
+                  // No per-role credits loaded, but the row carries its primary
+                  // maker's uuid (denormalized) — link the byline to their page.
+                  <Link to={`/p/${item.makerUuid}`} className="font-medium text-[var(--text)] hover:text-nonsprimary">
+                    {isBook ? item.author : item.director || item.author}
+                  </Link>
+                ) : (
+                  <span className="font-medium text-[var(--text)]">{isBook ? item.author : item.director || item.author}</span>
+                )}
+              </p>
+            )}
+            {reviewsPage.count > 0 && <div className="mt-3">{communityRating}</div>}
           </div>
 
           <hr className="border-[var(--divider)]" />
