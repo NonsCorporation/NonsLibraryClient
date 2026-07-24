@@ -548,6 +548,8 @@ export default function Statistics() {
           t={t}
           authorPhotoUrl={topAuthorPhoto}
           userName={userName}
+          userAvatarUrl={user?.avatar_url}
+          userHandle={user?.username}
         />
       )}
 

@@ -13,6 +13,9 @@ export type UserReactionPayload = {
   actorId: number
   actorName: string
   actorAvatarUrl?: string
+  /** For linking to the actor's profile via userPath(); falls back to handle when unset. */
+  actorUuid?: string
+  actorHandle?: string
 }
 
 export type Activity = {
@@ -165,7 +168,14 @@ function toReactionPayload(e: ActivityEvent, friends?: Map<number, Activity['use
   if (!e.reaction) return undefined
   const actor = friends?.get(e.reaction.actor_id)
   if (!actor) return undefined
-  return { type: e.reaction.type, actorId: e.reaction.actor_id, actorName: actor.name, actorAvatarUrl: actor.avatarUrl }
+  return {
+    type: e.reaction.type,
+    actorId: e.reaction.actor_id,
+    actorName: actor.name,
+    actorAvatarUrl: actor.avatarUrl,
+    actorUuid: actor.uuid,
+    actorHandle: actor.handle,
+  }
 }
 
 // Map a wire event to an Activity, branching on whether it's a media event or a

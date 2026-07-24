@@ -49,6 +49,15 @@ function Stars({ rating, size = 16 }: { rating: number; size?: number }) {
   )
 }
 
+// "Jan 5" style short date for a finished item's ISO finishedAt, in the
+// dashboard's active locale. Empty when unparseable/missing.
+function fmtShortDate(iso: string | undefined, locale: string): string {
+  if (!iso) return ''
+  const d = new Date(iso)
+  if (Number.isNaN(d.getTime())) return ''
+  return d.toLocaleDateString(locale, { month: 'short', day: 'numeric' })
+}
+
 // Deterministic hue from a string (title+author), so the same book always
 // gets the same generated cover color across renders/exports.
 function hashHue(seed: string): number {
@@ -239,7 +248,7 @@ function statRow(icon: React.ReactNode, value: string | number, label: string, c
 
 type Slide = { key: string; accent: string; render: () => React.ReactNode }
 
-function buildSlides(r: Recap, label: string, locale: string, t: TFn, authorPhotoUrl?: string, userName?: string): Slide[] {
+function buildSlides(r: Recap, label: string, locale: string, t: TFn, authorPhotoUrl?: string, userName?: string, userAvatarUrl?: string, userHandle?: string): Slide[] {
   const footer = label
   const slides: Slide[] = []
 
@@ -253,9 +262,17 @@ function buildSlides(r: Recap, label: string, locale: string, t: TFn, authorPhot
         <div style={{ flex: 1, display: 'flex', flexDirection: 'column', justifyContent: 'center', gap: 26 }}>
           <div>
             <p style={{ fontSize: 13, textTransform: 'uppercase', letterSpacing: 2, color: MUTED, margin: 0 }}>{label}</p>
-            <p style={{ fontSize: 26, fontWeight: 800, margin: '6px 0 16px' }}>
-              {userName ? t('recapForName', { name: userName }) : t('recapTitle')}
-            </p>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 10, margin: '8px 0 16px' }}>
+              {userName && <PersonPhoto url={userAvatarUrl} size={34} />}
+              <div>
+                <p style={{ fontSize: 26, fontWeight: 800, margin: 0, lineHeight: 1.2 }}>
+                  {userName ? t('recapForName', { name: userName }) : t('recapTitle')}
+                </p>
+                {userName && userHandle && (
+                  <p style={{ fontSize: 13, color: MUTED, margin: '2px 0 0' }}>@{userHandle}</p>
+                )}
+              </div>
+            </div>
             <p style={{ fontSize: 64, fontWeight: 900, lineHeight: 0.95, margin: 0 }}>{r.counts.total}</p>
             <p style={{ fontSize: 16, color: MUTED, margin: '4px 0 0' }}>{t('recapFinishedTotal')}</p>
           </div>
@@ -388,6 +405,9 @@ function buildSlides(r: Recap, label: string, locale: string, t: TFn, authorPhot
                   ) : (
                     <span style={{ fontSize: 11, color: MUTED }}>—</span>
                   )}
+                  {fmtShortDate(i.finishedAt, locale) && (
+                    <span style={{ fontSize: 9, color: MUTED }}>{fmtShortDate(i.finishedAt, locale)}</span>
+                  )}
                 </a>
               ))}
             </div>
@@ -410,7 +430,7 @@ async function downloadCard(node: HTMLElement, name: string) {
   a.click()
 }
 
-export default function RecapStories({ open, onClose, recap, label, locale, t, authorPhotoUrl, userName }: {
+export default function RecapStories({ open, onClose, recap, label, locale, t, authorPhotoUrl, userName, userAvatarUrl, userHandle }: {
   open: boolean
   onClose: () => void
   recap: Recap
@@ -421,10 +441,14 @@ export default function RecapStories({ open, onClose, recap, label, locale, t, a
   authorPhotoUrl?: string
   /** The signed-in user's display name, for the "Recap for {name}" header. */
   userName?: string
+  /** The signed-in user's own avatar, shown next to the "Recap for {name}" header. */
+  userAvatarUrl?: string
+  /** The signed-in user's @handle, shown under their name on the intro slide. */
+  userHandle?: string
 }) {
   const slides = useMemo(
-    () => buildSlides(recap, label, locale, t, authorPhotoUrl, userName),
-    [recap, label, locale, t, authorPhotoUrl, userName],
+    () => buildSlides(recap, label, locale, t, authorPhotoUrl, userName, userAvatarUrl, userHandle),
+    [recap, label, locale, t, authorPhotoUrl, userName, userAvatarUrl, userHandle],
   )
   const nodes = useRef<(HTMLDivElement | null)[]>([])
   const scroller = useRef<HTMLDivElement>(null)
