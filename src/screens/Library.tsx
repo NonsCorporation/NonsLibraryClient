@@ -74,6 +74,177 @@ function toServerSort(sort: SortKey): NonNullable<LibrarySearchQuery['sort']> {
   }
 }
 
+// ── Collection folder tree (sidebar) ────────────────────────────────────────
+
+type ColNode = Collection & { children: ColNode[] }
+
+// Builds a folder tree out of a flat collection list. A collection whose
+// parent_id isn't present in `cols` (e.g. filtered out by a name search)
+// surfaces as a root itself, rather than disappearing — the right behavior
+// for search, where you want a flat "anything matching" result regardless of
+// where it lives in the real hierarchy.
+function buildCollectionTree(cols: Collection[]): ColNode[] {
+  const byId = new Map<number, ColNode>()
+  cols.forEach((c) => byId.set(c.id, { ...c, children: [] }))
+  const roots: ColNode[] = []
+  byId.forEach((node) => {
+    const parent = node.parent_id != null ? byId.get(node.parent_id) : undefined
+    if (parent) parent.children.push(node)
+    else roots.push(node)
+  })
+  return roots
+}
+
+// The topmost ancestor of id within cols (id itself if it's already top-level
+// or its parent chain is broken) — used to find which root row of the sidebar
+// tree a nested active filter lives under, for the "Show all" overflow check.
+function rootOf(cols: Collection[], id: number): number {
+  const byId = new Map(cols.map((c) => [c.id, c]))
+  let cur = byId.get(id)
+  while (cur?.parent_id != null) {
+    const parent = byId.get(cur.parent_id)
+    if (!parent) break
+    cur = parent
+  }
+  return cur ? cur.id : id
+}
+
+// Every ancestor id of id, nearest first, walked via parent_id — used to
+// auto-expand a nested collection's containing folders when it becomes the
+// active filter (e.g. landing on a bookmarked ?collection=<nested id> URL).
+function ancestorIds(cols: Collection[], id: number): number[] {
+  const byId = new Map(cols.map((c) => [c.id, c]))
+  const out: number[] = []
+  let cur = byId.get(id)?.parent_id ?? null
+  while (cur != null) {
+    out.push(cur)
+    cur = byId.get(cur)?.parent_id ?? null
+  }
+  return out
+}
+
+interface CollectionTreeRowProps {
+  node: ColNode
+  depth: number
+  activeId: number | null
+  readOnly: boolean
+  collapsedIds: Set<number>
+  onToggleCollapse: (id: number) => void
+  onSelect: (id: number) => void
+  onSettings: (col: Collection) => void
+  onCreateUnder: (id: number) => void
+  creatingUnder: number | 'root' | null
+  newColName: string
+  setNewColName: (v: string) => void
+  newColInputRef: React.RefObject<HTMLInputElement | null>
+  onCommitCreate: () => void
+  onCancelCreate: () => void
+  t: (key: string) => string
+}
+
+// One row of the desktop sidebar's collection tree, recursing into its own
+// children. Depth controls indentation; a folder's "+"/gear actions only
+// reveal on hover (this is a desktop-only, hover-capable surface).
+function CollectionTreeRow({
+  node, depth, activeId, readOnly, collapsedIds, onToggleCollapse, onSelect,
+  onSettings, onCreateUnder, creatingUnder, newColName, setNewColName,
+  newColInputRef, onCommitCreate, onCancelCreate, t,
+}: CollectionTreeRowProps) {
+  const active = activeId === node.id
+  const hasChildren = node.children.length > 0
+  const collapsed = collapsedIds.has(node.id)
+  const indent = depth * 14
+  return (
+    <>
+      <div className="group flex items-center gap-0.5" style={{ paddingLeft: indent }}>
+        <button
+          onClick={() => hasChildren && onToggleCollapse(node.id)}
+          className={`flex h-5 w-3.5 flex-shrink-0 items-center justify-center text-[var(--text-muted)] ${hasChildren ? 'hover:text-[var(--text)]' : 'invisible'}`}
+        >
+          {hasChildren && <IoChevronDown className={`h-3 w-3 transition-transform ${collapsed ? '-rotate-90' : ''}`} />}
+        </button>
+        <button
+          onClick={() => onSelect(node.id)}
+          className="group/col relative flex min-w-0 flex-1 items-center gap-2 rounded-lg px-2 py-1.5 text-sm transition-colors duration-200 hover:bg-[var(--surface-hover)]"
+        >
+          <span
+            className={`absolute inset-0 origin-center rounded-lg bg-[var(--surface-active)] transition-all duration-200 ease-out ${
+              active ? 'scale-100 opacity-100' : 'scale-[0.8] opacity-0'
+            }`}
+          />
+          <IoFolderOutline className={`relative h-3.5 w-3.5 flex-shrink-0 transition-colors duration-200 ${active ? 'text-[var(--text)]' : 'text-[var(--text-muted)] group-hover/col:text-[var(--text)]'}`} />
+          <span className={`relative min-w-0 truncate transition-colors duration-200 ${active ? 'font-medium text-[var(--text)]' : 'text-[var(--text-muted)] group-hover/col:text-[var(--text)]'}`}>{node.name}</span>
+          <span className="relative ml-auto flex-shrink-0 text-[11px] text-[var(--text-muted)]">{node.count}</span>
+        </button>
+        {/* Rename / move / delete / new subcollection — own collections only. */}
+        {!readOnly && (
+          <>
+            <button
+              onClick={() => onCreateUnder(node.id)}
+              title={t('newSubcollection') || 'New subcollection'}
+              className="flex-shrink-0 rounded-lg p-1.5 text-[var(--text-muted)] opacity-0 transition-opacity hover:bg-[var(--surface-hover)] hover:text-[var(--text)] group-hover:opacity-100"
+            >
+              <IoAdd className="h-3.5 w-3.5" />
+            </button>
+            <button
+              onClick={() => onSettings(node)}
+              title={`${t('settings') || 'Settings'}: ${node.name}`}
+              className="flex-shrink-0 rounded-lg p-1.5 text-[var(--text-muted)] opacity-0 transition-opacity hover:bg-[var(--surface-hover)] hover:text-[var(--text)] group-hover:opacity-100"
+            >
+              <IoSettingsOutline className="h-3.5 w-3.5" />
+            </button>
+          </>
+        )}
+      </div>
+
+      {!readOnly && creatingUnder === node.id && (
+        <div className="mt-0.5 flex items-center gap-1" style={{ paddingLeft: indent + 22 }}>
+          <input
+            ref={newColInputRef}
+            value={newColName}
+            onChange={(e) => setNewColName(e.target.value)}
+            onKeyDown={(e) => {
+              if (e.key === 'Enter') onCommitCreate()
+              if (e.key === 'Escape') onCancelCreate()
+            }}
+            onBlur={() => { if (!newColName.trim()) onCancelCreate() }}
+            placeholder={t('collectionName') || 'Name…'}
+            className="h-7 min-w-0 flex-1 rounded-md border border-[var(--primary-ring)] bg-[var(--input)] px-2 text-xs text-[var(--text)] placeholder:text-[var(--placeholder)] focus:outline-none"
+          />
+          <button onClick={onCommitCreate} className="flex-shrink-0 text-nonsprimary hover:opacity-70">
+            <IoCheckmark className="h-3.5 w-3.5" />
+          </button>
+          <button onClick={onCancelCreate} className="flex-shrink-0 text-[var(--text-muted)] hover:opacity-70">
+            <IoClose className="h-3.5 w-3.5" />
+          </button>
+        </div>
+      )}
+
+      {hasChildren && !collapsed && node.children.map((child) => (
+        <CollectionTreeRow
+          key={child.id}
+          node={child}
+          depth={depth + 1}
+          activeId={activeId}
+          readOnly={readOnly}
+          collapsedIds={collapsedIds}
+          onToggleCollapse={onToggleCollapse}
+          onSelect={onSelect}
+          onSettings={onSettings}
+          onCreateUnder={onCreateUnder}
+          creatingUnder={creatingUnder}
+          newColName={newColName}
+          setNewColName={setNewColName}
+          newColInputRef={newColInputRef}
+          onCommitCreate={onCommitCreate}
+          onCancelCreate={onCancelCreate}
+          t={t}
+        />
+      ))}
+    </>
+  )
+}
+
 export default function LibraryScreen() {
   const { t } = useLanguage()
   const { user: authUser, loading: authLoading } = useAuth()
@@ -86,12 +257,18 @@ export default function LibraryScreen() {
 
   // Sidebar collection management state.
   const [settingsCol, setSettingsCol] = useState<Collection | null>(null)
-  const [creatingCol, setCreatingCol] = useState(false)
+  // 'root' = creating a new top-level collection; a number = creating a
+  // subcollection nested under that collection's id; null = not creating.
+  const [creatingUnder, setCreatingUnder] = useState<number | 'root' | null>(null)
   const [newColName, setNewColName] = useState('')
   const newColInputRef = useRef<HTMLInputElement>(null)
-  // Past this many, the desktop sidebar collapses the list behind "Show all".
+  // Past this many top-level folders, the desktop sidebar collapses the rest
+  // behind "Show all" (nested children don't count against the cap — they
+  // only show once their parent is expanded).
   const COLLECTIONS_COLLAPSE_AT = 6
   const [collectionsExpanded, setCollectionsExpanded] = useState(false)
+  // Folder ids whose children are hidden in the desktop sidebar tree.
+  const [collapsedColIds, setCollapsedColIds] = useState<Set<number>>(new Set())
 
   // Sidebar curated-list creation state (editing a list happens on its own
   // /list/<id> page, not here — see ListDetail.tsx).
@@ -129,17 +306,37 @@ export default function LibraryScreen() {
     ? lists.filter((l) => l.title.toLowerCase().includes(colSearchNeedle))
     : lists
 
-  // Desktop sidebar: past COLLECTIONS_COLLAPSE_AT, hide the rest behind
-  // "Show all" — unless actively searching, or the URL-selected collection
-  // would otherwise be hidden.
-  const collectionsOverflow = filteredCollections.length > COLLECTIONS_COLLAPSE_AT
+  // Desktop sidebar folder tree, built from the (possibly name-filtered) flat
+  // list. Past COLLECTIONS_COLLAPSE_AT top-level folders, hide the rest
+  // behind "Show all" — unless actively searching, or the URL-selected
+  // collection lives under a root that would otherwise be hidden.
+  const collectionTree = useMemo(() => buildCollectionTree(filteredCollections), [filteredCollections])
+  const collectionsOverflow = collectionTree.length > COLLECTIONS_COLLAPSE_AT
+  const activeRootId = collectionFilter !== null ? rootOf(filteredCollections, collectionFilter) : null
   const activeCollectionHidden =
     collectionsOverflow &&
-    collectionFilter !== null &&
-    filteredCollections.findIndex((c) => c.id === collectionFilter) >= COLLECTIONS_COLLAPSE_AT
+    activeRootId !== null &&
+    collectionTree.findIndex((r) => r.id === activeRootId) >= COLLECTIONS_COLLAPSE_AT
   const showAllCollections = collectionsExpanded || !!colSearchNeedle || activeCollectionHidden
-  const displayedCollections =
-    collectionsOverflow && !showAllCollections ? filteredCollections.slice(0, COLLECTIONS_COLLAPSE_AT) : filteredCollections
+  const displayedCollectionTree =
+    collectionsOverflow && !showAllCollections ? collectionTree.slice(0, COLLECTIONS_COLLAPSE_AT) : collectionTree
+
+  // Auto-expand a nested active filter's containing folders, so landing on a
+  // bookmarked ?collection=<nested id> URL reveals it instead of leaving it
+  // hidden under a collapsed parent.
+  useEffect(() => {
+    if (collectionFilter === null) return
+    const ancestors = ancestorIds(collections, collectionFilter)
+    if (ancestors.length === 0) return
+    setCollapsedColIds((prev) => {
+      let changed = false
+      const next = new Set(prev)
+      for (const id of ancestors) {
+        if (next.delete(id)) changed = true
+      }
+      return changed ? next : prev
+    })
+  }, [collectionFilter, collections])
 
   // Local search — filters the user's own library. The global top-bar search
   // goes to Discover and searches the whole catalog instead. Debounced before
@@ -684,9 +881,37 @@ export default function LibraryScreen() {
   // Sidebar collection helpers
   const commitCreate = async () => {
     const name = newColName.trim()
-    if (name) await createCollection(name)
+    const parentId = typeof creatingUnder === 'number' ? creatingUnder : null
+    if (name) await createCollection(name, parentId)
     setNewColName('')
-    setCreatingCol(false)
+    setCreatingUnder(null)
+  }
+  const cancelCreate = () => {
+    setCreatingUnder(null)
+    setNewColName('')
+  }
+  // Starts the inline "new collection" input, either at the top level ('root')
+  // or nested under a given collection's id — expanding that folder first if
+  // it was collapsed, so the new input row is actually visible.
+  const startCreateUnder = (parent: number | 'root') => {
+    if (typeof parent === 'number') {
+      setCollapsedColIds((prev) => {
+        if (!prev.has(parent)) return prev
+        const next = new Set(prev)
+        next.delete(parent)
+        return next
+      })
+    }
+    setCreatingUnder(parent)
+    setTimeout(() => newColInputRef.current?.focus(), 30)
+  }
+  const toggleCollapse = (id: number) => {
+    setCollapsedColIds((prev) => {
+      const next = new Set(prev)
+      if (next.has(id)) next.delete(id)
+      else next.add(id)
+      return next
+    })
   }
   // Sidebar list helpers — creates the list then jumps straight to its detail
   // page, where the title/description/items are actually managed.
@@ -884,36 +1109,27 @@ export default function LibraryScreen() {
               />
             )}
 
-            {displayedCollections.map((col) => {
-              const active = collectionFilter === col.id
-              return (
-                <div key={col.id} className="group flex items-center gap-0.5">
-                  <button
-                    onClick={() => setCollectionParam(active ? null : col.id)}
-                    className="group/col relative flex min-w-0 flex-1 items-center gap-2 rounded-lg px-2.5 py-1.5 text-sm transition-colors duration-200 hover:bg-[var(--surface-hover)]"
-                  >
-                    <span
-                      className={`absolute inset-0 origin-center rounded-lg bg-[var(--surface-active)] transition-all duration-200 ease-out ${
-                        active ? 'scale-100 opacity-100' : 'scale-[0.8] opacity-0'
-                      }`}
-                    />
-                    <IoFolderOutline className={`relative h-3.5 w-3.5 flex-shrink-0 transition-colors duration-200 ${active ? 'text-[var(--text)]' : 'text-[var(--text-muted)] group-hover/col:text-[var(--text)]'}`} />
-                    <span className={`relative min-w-0 truncate transition-colors duration-200 ${active ? 'font-medium text-[var(--text)]' : 'text-[var(--text-muted)] group-hover/col:text-[var(--text)]'}`}>{col.name}</span>
-                    <span className="relative ml-auto flex-shrink-0 text-[11px] text-[var(--text-muted)]">{col.count}</span>
-                  </button>
-                  {/* Rename / move / delete — own collections only. */}
-                  {!readOnly && (
-                    <button
-                      onClick={() => setSettingsCol(col)}
-                      title={`${t('settings') || 'Settings'}: ${col.name}`}
-                      className="flex-shrink-0 rounded-lg p-1.5 text-[var(--text-muted)] opacity-0 transition-opacity hover:bg-[var(--surface-hover)] hover:text-[var(--text)] group-hover:opacity-100"
-                    >
-                      <IoSettingsOutline className="h-3.5 w-3.5" />
-                    </button>
-                  )}
-                </div>
-              )
-            })}
+            {displayedCollectionTree.map((node) => (
+              <CollectionTreeRow
+                key={node.id}
+                node={node}
+                depth={0}
+                activeId={collectionFilter}
+                readOnly={readOnly}
+                collapsedIds={collapsedColIds}
+                onToggleCollapse={toggleCollapse}
+                onSelect={(id) => setCollectionParam(collectionFilter === id ? null : id)}
+                onSettings={setSettingsCol}
+                onCreateUnder={startCreateUnder}
+                creatingUnder={creatingUnder}
+                newColName={newColName}
+                setNewColName={setNewColName}
+                newColInputRef={newColInputRef}
+                onCommitCreate={commitCreate}
+                onCancelCreate={cancelCreate}
+                t={t}
+              />
+            ))}
 
             {collectionsOverflow && !activeCollectionHidden && (
               <button
@@ -923,11 +1139,11 @@ export default function LibraryScreen() {
                 <IoChevronDown className={`h-3 w-3 transition-transform ${collectionsExpanded ? 'rotate-180' : ''}`} />
                 {collectionsExpanded
                   ? (t('showLess') || 'Show less')
-                  : `${t('showAll') || 'Show all'} (${filteredCollections.length})`}
+                  : `${t('showAll') || 'Show all'} (${collectionTree.length})`}
               </button>
             )}
 
-            {!readOnly && (creatingCol ? (
+            {!readOnly && (creatingUnder === 'root' ? (
               <div className="mt-1 flex items-center gap-1">
                 <input
                   ref={newColInputRef}
@@ -935,22 +1151,22 @@ export default function LibraryScreen() {
                   onChange={(e) => setNewColName(e.target.value)}
                   onKeyDown={(e) => {
                     if (e.key === 'Enter') commitCreate()
-                    if (e.key === 'Escape') { setCreatingCol(false); setNewColName('') }
+                    if (e.key === 'Escape') cancelCreate()
                   }}
-                  onBlur={() => { if (!newColName.trim()) setCreatingCol(false) }}
+                  onBlur={() => { if (!newColName.trim()) cancelCreate() }}
                   placeholder={t('collectionName') || 'Name…'}
                   className="h-7 min-w-0 flex-1 rounded-md border border-[var(--primary-ring)] bg-[var(--input)] px-2 text-xs text-[var(--text)] placeholder:text-[var(--placeholder)] focus:outline-none"
                 />
                 <button onClick={commitCreate} className="flex-shrink-0 text-nonsprimary hover:opacity-70">
                   <IoCheckmark className="h-3.5 w-3.5" />
                 </button>
-                <button onClick={() => { setCreatingCol(false); setNewColName('') }} className="flex-shrink-0 text-[var(--text-muted)] hover:opacity-70">
+                <button onClick={cancelCreate} className="flex-shrink-0 text-[var(--text-muted)] hover:opacity-70">
                   <IoClose className="h-3.5 w-3.5" />
                 </button>
               </div>
             ) : (
               <button
-                onClick={() => { setCreatingCol(true); setTimeout(() => newColInputRef.current?.focus(), 30) }}
+                onClick={() => startCreateUnder('root')}
                 className="mt-1 flex items-center gap-1.5 px-2.5 py-1.5 text-xs text-[var(--text-muted)] hover:text-[var(--text)]"
               >
                 <IoAdd className="h-3.5 w-3.5" />
@@ -1064,7 +1280,7 @@ export default function LibraryScreen() {
       </div>
 
       {/* Collection chips — mobile only. Own (editable) or another user's (view/filter only). */}
-      {(visibleCollections.length > 0 || (!readOnly && creatingCol)) && (
+      {(visibleCollections.length > 0 || (!readOnly && creatingUnder === 'root')) && (
         <div className="mb-4 lg:hidden">
           {colSearchOpen && (
             <input
@@ -1110,6 +1326,9 @@ export default function LibraryScreen() {
                     onClick={() => setCollectionParam(active ? null : col.id)}
                     className={`relative flex items-center gap-1.5 py-1 pl-3 pr-2 transition-colors duration-200 ${active ? 'font-medium text-[var(--text)]' : 'text-[var(--text-muted)]'}`}
                   >
+                    {/* Nested collections get a small indent mark — the mobile
+                        chip row stays flat (no room for a real tree here). */}
+                    {col.parent_id != null && <span className="text-[var(--placeholder)]">↳</span>}
                     <IoFolderOutline className="h-3 w-3 flex-shrink-0" />
                     {col.name}
                     <span className="opacity-50">{col.count}</span>
@@ -1127,7 +1346,7 @@ export default function LibraryScreen() {
                 </div>
               )
             })}
-            {!readOnly && (creatingCol ? (
+            {!readOnly && (creatingUnder === 'root' ? (
               <div className="flex shrink-0 items-center gap-1">
                 <input
                   ref={newColInputRef}
@@ -1135,22 +1354,22 @@ export default function LibraryScreen() {
                   onChange={(e) => setNewColName(e.target.value)}
                   onKeyDown={(e) => {
                     if (e.key === 'Enter') commitCreate()
-                    if (e.key === 'Escape') { setCreatingCol(false); setNewColName('') }
+                    if (e.key === 'Escape') cancelCreate()
                   }}
-                  onBlur={() => { if (!newColName.trim()) setCreatingCol(false) }}
+                  onBlur={() => { if (!newColName.trim()) cancelCreate() }}
                   placeholder={t('collectionName') || 'Name…'}
                   className="h-7 w-32 rounded-full border border-[var(--primary-ring)] bg-[var(--input)] px-3 text-xs text-[var(--text)] placeholder:text-[var(--placeholder)] focus:outline-none"
                 />
                 <button onClick={commitCreate} className="flex-shrink-0 text-nonsprimary">
                   <IoCheckmark className="h-3.5 w-3.5" />
                 </button>
-                <button onClick={() => { setCreatingCol(false); setNewColName('') }} className="flex-shrink-0 text-[var(--text-muted)]">
+                <button onClick={cancelCreate} className="flex-shrink-0 text-[var(--text-muted)]">
                   <IoClose className="h-3.5 w-3.5" />
                 </button>
               </div>
             ) : (
               <button
-                onClick={() => { setCreatingCol(true); setTimeout(() => newColInputRef.current?.focus(), 30) }}
+                onClick={() => startCreateUnder('root')}
                 className="flex shrink-0 items-center gap-1 rounded-full border border-dashed border-[var(--border-subtle)] px-3 py-1 text-xs text-[var(--text-muted)]"
               >
                 <IoAdd className="h-3 w-3" />

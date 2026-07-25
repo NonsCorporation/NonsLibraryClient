@@ -2,9 +2,10 @@
 
 import { useRef, useState, useEffect } from 'react'
 import { createPortal } from 'react-dom'
-import { IoClose, IoCheckmark } from 'react-icons/io5'
-import { useCollections } from '@/contexts/CollectionContext'
+import { IoClose, IoCheckmark, IoFolderOutline } from 'react-icons/io5'
+import { useCollections, subtreeIds } from '@/contexts/CollectionContext'
 import { collectionService } from '@/services/collectionService'
+import { useLanguage } from '@/contexts/LanguageContext'
 import ConfirmModal from '@/components/ui/ConfirmModal'
 import type { Collection, MediaItem } from '@/types'
 
@@ -25,7 +26,8 @@ export default function CollectionSettingsModal({
   onClose,
   onDone,
 }: Props) {
-  const { renameCollection, deleteCollection, createCollection, refresh } = useCollections()
+  const { renameCollection, deleteCollection, createCollection, moveCollection, refresh } = useCollections()
+  const { t } = useLanguage()
 
   // ── Name — edited inline in the header, no separate "Rename" form. ─────────
   const [name, setName] = useState(collection.name)
@@ -38,11 +40,28 @@ export default function CollectionSettingsModal({
   const [removeAfterMove, setRemoveAfterMove] = useState(true)
   const [deleteAfterMove, setDeleteAfterMove] = useState(false)
 
+  // ── Folder (this collection's own place in the tree) ────────────────────────
+  // Excludes the collection's own subtree from the "move folder" target list —
+  // moving it into one of its own descendants would be a cycle (rejected
+  // server-side too, but filtering it out client-side is a better picker).
+  const ownSubtree = new Set(subtreeIds(allCollections, collection.id))
+  const parentCandidates = allCollections.filter((c) => !ownSubtree.has(c.id))
+  const children = allCollections.filter((c) => c.parent_id === collection.id)
+  // Everything Delete would cascade-remove besides this collection itself.
+  const descendantCount = ownSubtree.size - 1
+  const currentParent = collection.parent_id != null ? allCollections.find((c) => c.id === collection.parent_id) ?? null : null
+  const [showParentPicker, setShowParentPicker] = useState(false)
+  const [folderBusy, setFolderBusy] = useState(false)
+  const [folderError, setFolderError] = useState('')
+
   // ── Shared ───────────────────────────────────────────────────────────────────
   const [busy, setBusy] = useState(false)
   const [moveError, setMoveError] = useState('')
   const [confirmDelete, setConfirmDelete] = useState(false)
 
+  // "Move items" only offers other collections at the same level or below —
+  // any collection works as a target, this collection's own subtree included,
+  // since moving items there is unrelated to the folder-nesting concern above.
   const others = allCollections.filter((c) => c.id !== collection.id)
   const inCollection = items.filter((it) => it.collectionIds?.includes(collection.id))
   const itemCount = inCollection.length
@@ -119,6 +138,39 @@ export default function CollectionSettingsModal({
     }
   }
 
+  // Reparents this collection itself (nests it under parentId, or moves it
+  // to top-level when parentId is null).
+  async function handleMoveFolder(parentId: number | null) {
+    if (parentId === collection.parent_id) return
+    setFolderError('')
+    setFolderBusy(true)
+    try {
+      await moveCollection(collection.id, parentId)
+      setShowParentPicker(false)
+      onDone()
+    } catch (e) {
+      setFolderError(e instanceof Error ? e.message : 'Failed to move folder')
+    } finally {
+      setFolderBusy(false)
+    }
+  }
+
+  // Un-nests every direct sub-collection by one level (promotes them to this
+  // collection's own parent, or top-level). Non-destructive — nothing is
+  // deleted, items and sub-collections keep everything they had.
+  async function handleFlatten() {
+    setFolderError('')
+    setFolderBusy(true)
+    try {
+      await Promise.all(children.map((c) => moveCollection(c.id, collection.parent_id)))
+      onDone()
+    } catch (e) {
+      setFolderError(e instanceof Error ? e.message : 'Failed to flatten')
+    } finally {
+      setFolderBusy(false)
+    }
+  }
+
   async function handleDelete() {
     setBusy(true)
     try {
@@ -177,6 +229,83 @@ export default function CollectionSettingsModal({
 
         {/* Scrollable body */}
         <div className="flex-1 overflow-y-auto divide-y divide-[var(--border-subtle)]">
+
+          {/* ── Folder — where this collection itself sits in the tree. ── */}
+          {(parentCandidates.length > 0 || collection.parent_id !== null || children.length > 0) && (
+            <section className="px-5 py-5">
+              <div className="mb-3 flex items-center justify-between gap-3 rounded-xl border border-[var(--border-subtle)] bg-[var(--surface)] px-3 py-2.5">
+                <div className="min-w-0">
+                  <p className="text-[11px] uppercase tracking-wide text-[var(--text-muted)]">Folder</p>
+                  <p className="mt-0.5 flex min-w-0 items-center gap-1.5 truncate text-sm text-[var(--text)]">
+                    <IoFolderOutline className="h-3.5 w-3.5 flex-shrink-0 text-[var(--text-muted)]" />
+                    <span className="truncate">{currentParent ? currentParent.name : (t('topLevel') || 'Top level')}</span>
+                  </p>
+                </div>
+                {(parentCandidates.length > 0 || collection.parent_id !== null) && (
+                  <button
+                    onClick={() => setShowParentPicker((v) => !v)}
+                    className="flex-shrink-0 rounded-lg border border-[var(--border-subtle)] px-3 py-1.5 text-xs font-medium text-[var(--text)] hover:bg-[var(--surface-hover)]"
+                  >
+                    {t('moveFolder') || 'Move folder'}
+                  </button>
+                )}
+              </div>
+
+              {showParentPicker && (
+                <div className="mb-3 max-h-44 overflow-y-auto rounded-xl border border-[var(--border-subtle)] bg-[var(--surface)]">
+                  <button
+                    onClick={() => handleMoveFolder(null)}
+                    disabled={folderBusy || collection.parent_id === null}
+                    className={`flex w-full items-center gap-2.5 rounded-t-xl px-3 py-2.5 text-left text-sm transition-colors disabled:cursor-default ${
+                      collection.parent_id === null
+                        ? 'bg-[var(--surface-active)] text-[var(--text)]'
+                        : 'text-[var(--text-muted)] hover:bg-[var(--surface-hover)] hover:text-[var(--text)]'
+                    }`}
+                  >
+                    {collection.parent_id === null && <IoCheckmark className="h-3.5 w-3.5 flex-shrink-0" />}
+                    {t('topLevel') || 'Top level'}
+                  </button>
+                  {parentCandidates.map((c, i) => (
+                    <button
+                      key={c.id}
+                      onClick={() => handleMoveFolder(c.id)}
+                      disabled={folderBusy || collection.parent_id === c.id}
+                      className={`flex w-full items-center gap-2.5 px-3 py-2.5 text-left text-sm transition-colors disabled:cursor-default ${
+                        i === parentCandidates.length - 1 ? 'rounded-b-xl' : ''
+                      } ${
+                        collection.parent_id === c.id
+                          ? 'bg-[var(--surface-active)] text-[var(--text)]'
+                          : 'text-[var(--text-muted)] hover:bg-[var(--surface-hover)] hover:text-[var(--text)]'
+                      }`}
+                    >
+                      {collection.parent_id === c.id && <IoCheckmark className="h-3.5 w-3.5 flex-shrink-0" />}
+                      <span className="min-w-0 flex-1 truncate">{c.name}</span>
+                    </button>
+                  ))}
+                </div>
+              )}
+
+              {children.length > 0 && (
+                <div className="flex items-center justify-between gap-3 rounded-xl border border-[var(--border-subtle)] bg-[var(--surface)] px-3 py-2.5">
+                  <div className="min-w-0">
+                    <p className="text-sm text-[var(--text)]">{t('flattenCollection') || 'Flatten'}</p>
+                    <p className="mt-0.5 text-xs text-[var(--text-muted)]">
+                      {t('flattenCollectionHint') || 'Move each sub-collection up a level. Items and sub-collections stay — nothing is deleted.'}
+                    </p>
+                  </div>
+                  <button
+                    onClick={handleFlatten}
+                    disabled={folderBusy}
+                    className="flex-shrink-0 rounded-lg border border-[var(--border-subtle)] px-3 py-1.5 text-xs font-medium text-[var(--text)] hover:bg-[var(--surface-hover)] disabled:opacity-40"
+                  >
+                    {t('flattenCollection') || 'Flatten'}
+                  </button>
+                </div>
+              )}
+
+              {folderError && <p className="mt-2 text-xs text-red-400">{folderError}</p>}
+            </section>
+          )}
 
           {/* ── Move all items ── */}
           <section className="px-5 py-5">
@@ -305,7 +434,11 @@ export default function CollectionSettingsModal({
       {confirmDelete && (
         <ConfirmModal
           title={`Delete "${collection.name}"?`}
-          message="Items stay in your library — they just won't be in this collection anymore."
+          message={
+            descendantCount > 0
+              ? `This also deletes its ${descendantCount} sub-collection${descendantCount !== 1 ? 's' : ''} (nested ones included). Items stay in your library — they just won't be in these collections anymore.`
+              : "Items stay in your library — they just won't be in this collection anymore."
+          }
           confirmText={busy ? 'Deleting…' : 'Delete'}
           cancelText="Cancel"
           variant="danger"

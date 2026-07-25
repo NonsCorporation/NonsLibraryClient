@@ -17,11 +17,11 @@ async function getUserCollections(userId: number): Promise<Collection[]> {
   return (data.collections ?? []) as Collection[]
 }
 
-async function createCollection(name: string): Promise<Collection> {
+async function createCollection(name: string, parentId?: number | null): Promise<Collection> {
   const res = await authedFetch('/api/collections', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ name }),
+    body: JSON.stringify({ name, parent_id: parentId ?? null }),
   })
   if (!res.ok) {
     const body = await res.json().catch(() => ({}))
@@ -29,6 +29,20 @@ async function createCollection(name: string): Promise<Collection> {
   }
   const data = await res.json()
   return data.collection as Collection
+}
+
+// Reparents a collection — nests it under parentId, or moves it to top-level
+// when parentId is null. Rejected server-side if it would create a cycle.
+async function moveCollection(id: number, parentId: number | null): Promise<void> {
+  const res = await authedFetch(`/api/collections/${id}/parent`, {
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ parent_id: parentId }),
+  })
+  if (!res.ok) {
+    const body = await res.json().catch(() => ({}))
+    throw new Error(body.error || 'Failed to move collection')
+  }
 }
 
 async function renameCollection(id: number, name: string): Promise<void> {
@@ -67,6 +81,7 @@ export const collectionService = {
   listCollections,
   getUserCollections,
   createCollection,
+  moveCollection,
   renameCollection,
   deleteCollection,
   getItemCollections,

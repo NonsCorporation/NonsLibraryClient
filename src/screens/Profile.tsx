@@ -725,6 +725,7 @@ export default function ProfilePage() {
                     : 'border-[var(--border-subtle)] text-[var(--text-muted)]'
                 }`}
               >
+                {col.parent_id != null && <span className="text-[var(--placeholder)]">↳</span>}
                 <IoFolderOutline className="h-3 w-3 flex-shrink-0" />
                 {col.name}
                 <span className="opacity-50">{col.count}</span>

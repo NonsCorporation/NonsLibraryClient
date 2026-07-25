@@ -1,10 +1,10 @@
 'use client'
 
 import { createPortal } from 'react-dom'
-import { useEffect, useRef, useState, useId } from 'react'
+import { useEffect, useMemo, useRef, useState, useId } from 'react'
 import { IoChevronDown, IoCheckmark, IoAdd, IoTrendingUpOutline, IoClose, IoFolderOutline, IoLayersOutline, IoTrashOutline } from 'react-icons/io5'
 import { TbSpy } from 'react-icons/tb'
-import type { MediaItem, ShelfStatus } from '@/types'
+import type { Collection, MediaItem, ShelfStatus } from '@/types'
 import { STATUS_COLOR, statusLabel } from '@/lib/shelf'
 import { userPath } from '@/lib/paths'
 import { Link } from '@/lib/router'
@@ -26,12 +26,49 @@ type Props = {
   variant?: 'bar' | 'button'
 }
 
+// Depth-first tree order (a collection immediately followed by its own
+// children, recursively) so nested collections group right after their
+// parent in this flat chip list — e.g. "Recs", "Recs / A", "Recs / B", then
+// the next top-level collection — instead of scattering in creation order.
+// Siblings keep their relative order from `cols`.
+function sortedByTree(cols: Collection[]): Collection[] {
+  const byParent = new Map<number | null, Collection[]>()
+  for (const c of cols) {
+    const key = c.parent_id
+    const siblings = byParent.get(key)
+    if (siblings) siblings.push(c)
+    else byParent.set(key, [c])
+  }
+  const out: Collection[] = []
+  const visit = (parentId: number | null) => {
+    for (const c of byParent.get(parentId) ?? []) {
+      out.push(c)
+      visit(c.id)
+    }
+  }
+  visit(null)
+  return out
+}
+
 export default function ShelfStatusBar({ item, currentStatus, onStatusChange, onEditProgress, onRemove, variant = 'bar' }: Props) {
   const { t } = useLanguage()
   const { user } = useAuth()
   const { collections, createCollection, refresh } = useCollections()
   const { lists, createList, refresh: refreshLists } = useLists()
   const isBook = item.type === 'book'
+
+  // This picker is a flat wrapping chip list (not a tree), so a nested
+  // collection is labeled with its parent's name ("Parent / Child") instead
+  // of indentation — the only way to convey nesting without restructuring the
+  // layout into a vertical list.
+  const collectionLabel = useMemo(() => {
+    const byId = new Map(collections.map((c) => [c.id, c]))
+    return (col: (typeof collections)[number]) => {
+      const parent = col.parent_id != null ? byId.get(col.parent_id) : undefined
+      return parent ? `${parent.name} / ${col.name}` : col.name
+    }
+  }, [collections])
+  const orderedCollections = useMemo(() => sortedByTree(collections), [collections])
 
   // enriches the status label with the latest progress for active items
   const [latestPage, setLatestPage] = useState<number>(0)
@@ -309,7 +346,7 @@ export default function ShelfStatusBar({ item, currentStatus, onStatusChange, on
           <p className="text-xs text-[var(--text-muted)]">{t('noCollections') || 'No collections yet'}</p>
         ) : (
           <div className="flex flex-wrap gap-1.5">
-            {collections.map((col) => {
+            {orderedCollections.map((col) => {
               const on = itemCollectionIds.includes(col.id)
               return (
                 <button
@@ -322,7 +359,7 @@ export default function ShelfStatusBar({ item, currentStatus, onStatusChange, on
                   }`}
                 >
                   {on ? <IoCheckmark className="h-3 w-3" /> : <IoFolderOutline className="h-3 w-3" />}
-                  {col.name}
+                  {collectionLabel(col)}
                 </button>
               )
             })}

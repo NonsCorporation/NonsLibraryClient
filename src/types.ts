@@ -3,6 +3,8 @@ export type MediaType = 'book' | 'movie' | 'series'
 export type Collection = {
   id: number
   name: string
+  /** The containing collection's id, or null for a top-level collection. */
+  parent_id: number | null
   count: number
   created_at: number
 }
