@@ -23,7 +23,7 @@ export type BackendMedia = {
   isbn: string
   work_id: string
   tmdb_id?: number
-  details?: { original_language?: string; title_en?: string; ol_work?: string } | null
+  details?: { original_language?: string; title_en?: string; ol_work?: string; cast?: string[] } | null
   created_at: number
   updated_at: number
 }
@@ -71,6 +71,10 @@ export function toMediaItem(m: BackendMedia, s: Signals = {}): MediaItem {
     title: s.editionTitle || m.title,
     author: m.author || m.director,
     director: m.director || undefined,
+    // Top-billed cast names, denormalized onto the movie/series row's Details
+    // ({"cast":[…]}) at import time — the credits endpoint has the full,
+    // uuid-linked list, but this is enough for shelf cards and stats.
+    actors: m.details?.cast?.length ? m.details.cast : undefined,
     makerUuid: m.maker_uuid || undefined,
     isbn: m.isbn || undefined,
     workId: m.work_id || undefined,

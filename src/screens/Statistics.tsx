@@ -1,7 +1,7 @@
 'use client'
 
-import { useEffect, useMemo, useState } from 'react'
-import { IoChevronBack, IoChevronForward, IoBookOutline, IoFilmOutline, IoTvOutline, IoStar, IoHeartOutline, IoChatbubbleOutline, IoCheckmarkDoneOutline, IoLibraryOutline, IoTimeOutline, IoAlbumsOutline, IoPersonOutline, IoBarChartOutline, IoPieChartOutline, IoStatsChartOutline } from 'react-icons/io5'
+import { useEffect, useMemo, useRef, useState } from 'react'
+import { IoChevronBack, IoChevronForward, IoBookOutline, IoFilmOutline, IoTvOutline, IoStar, IoHeartOutline, IoChatbubbleOutline, IoCheckmarkDoneOutline, IoLibraryOutline, IoTimeOutline, IoAlbumsOutline, IoPersonOutline, IoPeopleOutline, IoBarChartOutline, IoPieChartOutline, IoStatsChartOutline } from 'react-icons/io5'
 import type { IconType } from 'react-icons'
 import { authedFetch } from '../lib/api'
 import { libraryService } from '../services/libraryService'
@@ -11,6 +11,7 @@ import { useAuth } from '../contexts/AuthContext'
 import { Link, useSearchParams } from '@/lib/router'
 import { mediaPath } from '@/lib/paths'
 import { buildRecap, fmtInt, fmtDuration } from '../lib/recap'
+import type { CreditPerson } from '../lib/mediaMap'
 import RecapStories from '@/components/feed/RecapStories'
 import DatePicker from '@/components/ui/DatePicker'
 import TypeBadge from '@/components/badges/TypeBadge'
@@ -192,6 +193,81 @@ export default function Statistics() {
       .catch(() => {})
     return () => { cancelled = true }
   }, [topAuthorUuid])
+
+  // Cast of each finished film/series, fetched lazily from /credits and cached by
+  // media id so paging through periods only fetches titles not seen yet. The
+  // denormalized details.cast (item.actors) gives names immediately; credits add
+  // the person uuid + photo, which is what lets the actors section show avatars.
+  const [castByMedia, setCastByMedia] = useState<Record<string, CreditPerson[]>>({})
+  const castInflight = useRef<Set<string>>(new Set())
+  useEffect(() => {
+    const ids = recap.items
+      .filter((i) => i.type !== 'book')
+      .map((i) => i.id)
+      .filter((id) => castByMedia[id] === undefined && !castInflight.current.has(id))
+    if (ids.length === 0) return
+    let cancelled = false
+    ids.forEach((id) => castInflight.current.add(id))
+    ;(async () => {
+      const CONCURRENCY = 6
+      for (let k = 0; k < ids.length && !cancelled; k += CONCURRENCY) {
+        const batch = ids.slice(k, k + CONCURRENCY)
+        const results = await Promise.all(
+          batch.map(async (id): Promise<[string, CreditPerson[]]> => {
+            try {
+              const r = await authedFetch(`/api/media/${id}/credits`)
+              const d = r.ok ? await r.json() : null
+              const cast = Array.isArray(d?.cast)
+                ? (d.cast as { person?: CreditPerson }[]).map((c) => c.person).filter((p): p is CreditPerson => !!p)
+                : []
+              return [id, cast]
+            } catch {
+              return [id, []]
+            } finally {
+              castInflight.current.delete(id)
+            }
+          }),
+        )
+        if (!cancelled) setCastByMedia((prev) => ({ ...prev, ...Object.fromEntries(results) }))
+      }
+    })()
+    return () => { cancelled = true }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [recap.items])
+
+  // Most-watched actors across the period's finished films & series: one tally per
+  // title an actor appears in. Keyed by person uuid once credits load (carrying
+  // their photo), falling back to the denormalized cast name until then — so the
+  // list shows immediately and gains avatars as credits stream in.
+  const topActors = useMemo(() => {
+    type Actor = { uuid?: string; name: string; photo?: string; count: number; works: MediaItem[] }
+    const map = new Map<string, Actor>()
+    for (const i of recap.items) {
+      if (i.type === 'book') continue
+      const people = castByMedia[i.id]
+      if (people && people.length > 0) {
+        for (const p of people) {
+          const key = p.uuid || `n:${p.name.toLowerCase()}`
+          const a = map.get(key) || { uuid: p.uuid, name: p.name, photo: p.photo_url, count: 0, works: [] }
+          a.count++
+          a.works.push(i)
+          if (!a.photo && p.photo_url) a.photo = p.photo_url
+          map.set(key, a)
+        }
+      } else if (i.actors) {
+        for (const raw of i.actors) {
+          const name = raw.trim()
+          if (!name) continue
+          const key = `n:${name.toLowerCase()}`
+          const a = map.get(key) || { name, count: 0, works: [] }
+          a.count++
+          a.works.push(i)
+          map.set(key, a)
+        }
+      }
+    }
+    return [...map.values()].sort((a, b) => b.count - a.count || a.name.localeCompare(b.name))
+  }, [recap.items, castByMedia])
 
   // Finished per month for the selected year, split by media type.
   const monthly = useMemo(() => {
@@ -537,6 +613,87 @@ export default function Statistics() {
           </div>
         )}
       </section>
+
+      {/* Most-watched actors — cast tallied across the films & series finished in
+          the recap period above, so it follows the same period selector. Hidden
+          when the recap is narrowed to books (which have no cast). */}
+      {recapType !== 'book' && (
+        <section className="rounded-2xl border border-[var(--border-subtle)] bg-[var(--container)] p-4 shadow-sm sm:p-6">
+          <div className="mb-4">
+            <h2 className="flex items-center gap-2 text-base font-semibold text-[var(--text)]">
+              <IoPeopleOutline className="h-4.5 w-4.5 text-[var(--text-muted)]" />
+              {t('statsMostWatchedActors')}
+            </h2>
+            <p className="mt-0.5 text-xs text-[var(--text-muted)]">{recapLabel}</p>
+          </div>
+          {topActors.length === 0 ? (
+            <p className="py-6 text-center text-sm text-[var(--text-muted)]">{t('statsNoActors')}</p>
+          ) : (
+            <ol className="grid grid-cols-1 gap-2 sm:grid-cols-2 lg:grid-cols-3">
+              {topActors.slice(0, 12).map((a) => {
+                const shown = a.works.slice(0, 5)
+                const extra = a.works.length - shown.length
+                const nameBlock = (
+                  <>
+                    <span className="flex h-10 w-10 flex-shrink-0 items-center justify-center overflow-hidden rounded-full bg-[var(--container-2)]">
+                      {a.photo ? (
+                        <img src={a.photo} alt="" className="h-full w-full object-cover" />
+                      ) : (
+                        <IoPersonOutline className="h-5 w-5 text-[var(--placeholder)]" />
+                      )}
+                    </span>
+                    <div className="min-w-0 flex-1">
+                      <p className="truncate text-sm font-semibold text-[var(--text)] group-hover/actor:text-nonsprimary" title={a.name}>
+                        {a.name}
+                      </p>
+                      <p className="mt-0.5 text-xs text-[var(--text-muted)]">{t('statsActorCount', { n: a.count })}</p>
+                    </div>
+                  </>
+                )
+                return (
+                  <li
+                    key={a.uuid || a.name}
+                    className="flex items-center gap-2.5 rounded-xl border border-[var(--border-subtle)] bg-[var(--surface)] py-2.5 pl-2.5 pr-3"
+                  >
+                    {a.uuid ? (
+                      <Link to={`/p/${a.uuid}`} className="group/actor flex min-w-0 flex-1 items-center gap-2.5 transition-colors">{nameBlock}</Link>
+                    ) : (
+                      <div className="flex min-w-0 flex-1 items-center gap-2.5">{nameBlock}</div>
+                    )}
+                    {/* Works this actor appeared in, this period — a fanned deck of up to 5 covers,
+                        with a "+m" badge over the last one when there are more. */}
+                    {shown.length > 0 && (
+                      <span className="flex flex-shrink-0 -space-x-3" title={a.works.map((w) => w.title).join(', ')}>
+                        {shown.map((w, i) => (
+                          <span
+                            key={w.id}
+                            className="relative h-7 w-5 overflow-hidden rounded-sm shadow-sm ring-2 ring-[var(--surface)]"
+                            style={{ transform: `rotate(${(i - (shown.length - 1) / 2) * 8}deg)`, zIndex: i }}
+                          >
+                            {w.coverUrl ? (
+                              <img src={w.coverUrl} alt="" className="h-full w-full object-cover" />
+                            ) : (
+                              <span
+                                className="flex h-full w-full items-center justify-center"
+                                style={{ backgroundColor: `hsl(${hashHue(w.title)}, 22%, 20%)` }}
+                              />
+                            )}
+                            {i === shown.length - 1 && extra > 0 && (
+                              <span className="absolute inset-0 flex items-center justify-center bg-black/60 text-[9px] font-bold text-white">
+                                +{extra}
+                              </span>
+                            )}
+                          </span>
+                        ))}
+                      </span>
+                    )}
+                  </li>
+                )
+              })}
+            </ol>
+          )}
+        </section>
+      )}
 
       {recapOpen && (
         <RecapStories
