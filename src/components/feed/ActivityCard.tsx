@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useState, type ReactNode } from 'react'
 import { Link } from '@/lib/router'
 import type { Activity, ActivityType } from '@/services/activityService'
 import type { MediaItem, ShelfStatus } from '@/types'
@@ -9,6 +9,7 @@ import { useLanguage } from '@/contexts/LanguageContext'
 import { mediaPath, userPath } from '@/lib/paths'
 import BoringAvatar from '@/components/ui/BoringAvatar'
 import ShelfStatusBar from '@/components/media/ShelfStatusBar'
+import CustomPagesHint from '@/components/ui/CustomPagesHint'
 import FinishModal from '@/components/reading/FinishModal'
 import { IoChatbubbleOutline, IoTrashOutline, IoShareOutline } from 'react-icons/io5'
 import { IoMdStar, IoMdStarHalf, IoMdStarOutline } from 'react-icons/io'
@@ -186,11 +187,30 @@ export default function ActivityCard({
   const to = mediaPath({ type: a.mediaType, uuid: a.mediaUuid, id: String(a.mediaId) })
   const typeLabel = a.mediaType === 'book' ? t('book') : a.mediaType === 'series' ? t('series') : t('film')
   const showStars = typeof a.rating === 'number' && a.rating > 0
-  // For progress events: "page 30 · 45%" (whichever parts are present).
-  const progressText =
+  // For progress events: "page 30 / 350 · 45%" (whichever parts are present).
+  // The total is the reader's own count when pagesCustom — shown with a dotted
+  // underline (matching the progress modal) so it reads as user-set.
+  const progressParts: ReactNode[] =
     a.type === 'progress'
-      ? [a.page ? t('pageN', { page: a.page }) : '', a.progressPct ? `${a.progressPct}%` : ''].filter(Boolean).join(' · ')
-      : ''
+      ? [
+          a.page ? (
+            <span key="page">
+              {t('pageN', { page: a.page })}
+              {a.totalPages ? (
+                <>
+                  {' / '}
+                  {a.pagesCustom ? (
+                    <CustomPagesHint label={t('customPagesHintOther')}>{a.totalPages}</CustomPagesHint>
+                  ) : (
+                    a.totalPages
+                  )}
+                </>
+              ) : null}
+            </span>
+          ) : null,
+          a.progressPct ? <span key="pct">{a.progressPct}%</span> : null,
+        ].filter(Boolean)
+      : []
   // The post owner (or an admin) may remove it from the feed; the server enforces.
   const canDelete = !!user && (user.id === a.userId || user.role === 'admin')
 
@@ -237,9 +257,14 @@ export default function ActivityCard({
               <Stars rating={a.rating!} />
             </span>
           )}
-          {progressText && (
+          {progressParts.length > 0 && (
             <span className="ml-0.5 inline-flex flex-shrink-0 items-center rounded-full bg-[var(--primary-soft)] px-2 py-0.5 text-xs font-medium text-[var(--text)]">
-              {progressText}
+              {progressParts.map((part, i) => (
+                <span key={i}>
+                  {i > 0 && ' · '}
+                  {part}
+                </span>
+              ))}
             </span>
           )}
         </div>

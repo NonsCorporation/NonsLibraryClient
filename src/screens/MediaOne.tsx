@@ -166,6 +166,9 @@ export default function MediaOnePage({
   // shelf signals. Used to show that printing's cover even when the edition isn't
   // in the carousel page that's been loaded yet.
   const [readingEdition, setReadingEdition] = useState<{ cover?: string; title?: string; pages?: number; language?: string } | null>(null)
+  // The reader's own page-count correction for this book (0 = none), carried
+  // from shelf signals. Overrides the edition/work pages as the progress total.
+  const [customPages, setCustomPages] = useState<number>(0)
   const [isbnFind, setIsbnFind] = useState('')
   // State (not derived) so it survives carousel page changes where the selected
   // edition isn't in the currently loaded slice. Initialized synchronously from
@@ -270,6 +273,7 @@ export default function MediaOnePage({
       setReadingEdition(
         sig.editionId ? { cover: sig.editionCover, title: sig.editionTitle, pages: sig.editionPages, language: sig.editionLanguage } : null,
       )
+      setCustomPages(sig.customPages ?? 0)
       // Seed the byline language from the reading edition so author credits
       // localize to it immediately — the title already does (from the edition
       // title carried here), and this keeps the author in step.
@@ -649,9 +653,10 @@ export default function MediaOnePage({
   // translated printing in another language), then the user's reading edition's
   // title, then the work's. So switching editions retitles the page.
   const displayTitle = altTitleEntry?.title || selectedEdition?.title || readingEdition?.title || item.title
-  // Page count to measure reading progress against: the selected edition's, when
-  // it has one (the printing you're actually reading), else the work's.
-  const totalPages = selectedEdition?.pages || readingEdition?.pages || item.pages || 0
+  // Page count to measure reading progress against: the reader's own correction
+  // first (their copy doesn't match the catalog), then the selected edition's
+  // (the printing you're actually reading), then the work's.
+  const totalPages = customPages || selectedEdition?.pages || readingEdition?.pages || item.pages || 0
 
   // Interactive controls (shelf, rating, review, favorite, edit) are for signed-in
   // users. Anonymous visitors and crawlers still get the full public content; we
@@ -1751,6 +1756,8 @@ export default function MediaOnePage({
         isOpen={progressOpen}
         item={item}
         total={totalPages}
+        customPages={customPages}
+        onCustomPagesChange={setCustomPages}
         onClose={() => { setProgressOpen(false); setProgressRefresh((n) => n + 1) }}
         onFinish={() => { setProgressOpen(false); setFinishOpen(true) }}
       />

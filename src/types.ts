@@ -412,6 +412,10 @@ export type MediaItem = {
   favorite?: boolean
   /** The book edition (printing) the user is reading, when chosen. 0/undefined = none. */
   editionId?: number
+  /** The reader's own page-count correction (0/undefined = none). When set it's
+   *  already folded into `pages`; kept separately so the UI can mark the total
+   *  as user-set. */
+  customPages?: number
   /** IDs of the user's custom collections that contain this item. */
   collectionIds?: number[]
   /** IDs of the user's curated lists that contain this item. */

@@ -43,6 +43,13 @@ export type Activity = {
   /** `progress` activities: how far through (percent and/or page). */
   progressPct?: number
   page?: number
+  /** `progress` activities: the page total the progress was measured against
+   *  (the reader's correction, else their edition, else the work). 0/undefined
+   *  when unknown. */
+  totalPages?: number
+  /** True when `totalPages` is the reader's own page-count correction rather
+   *  than the catalog's — shown as user-set (dotted underline). */
+  pagesCustom?: boolean
   /** Relative time, e.g. "2h", "1d". */
   timeAgo: string
   /** Absolute event time, Unix seconds — used for date grouping. */
@@ -88,6 +95,8 @@ type ActivityEvent = {
   note?: string // reviewed: the review text
   progress_pct?: number // progress: 0..100
   page?: number // progress: current page (books)
+  total_pages?: number // progress: page total the progress was measured against
+  pages_custom?: boolean // progress: total_pages is the reader's own correction
   at: number // unix seconds
   user_role?: string // librarian role, when the server includes it
   media?: { id: number; uuid?: string; type: MediaType; title: string; author?: string; maker_uuid?: string; year?: number; description?: string; cover_url: string }
@@ -228,6 +237,8 @@ function toActivity(e: ActivityEvent, user: Activity['user'], friends?: Map<numb
     text: e.note || undefined,
     progressPct: e.progress_pct || undefined,
     page: e.page || undefined,
+    totalPages: e.total_pages || undefined,
+    pagesCustom: e.pages_custom || undefined,
   }
 }
 

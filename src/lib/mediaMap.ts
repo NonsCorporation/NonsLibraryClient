@@ -45,6 +45,10 @@ export type Signals = {
   /** The chosen edition's page count, when set — used as the reading-progress
    *  total (the printing's pages), falling back to the work's. */
   editionPages?: number
+  /** The reader's own page-count correction for this book (0/undefined = none).
+   *  Set when the copy they're reading doesn't match the edition/work pages; it
+   *  overrides both as the reading-progress total. */
+  customPages?: number
   /** The chosen edition's language (2-letter code), so the page can localize the
    *  byline (author credits) to the printing the user is reading, even before the
    *  editions carousel loads that edition. */
@@ -85,7 +89,7 @@ export function toMediaItem(m: BackendMedia, s: Signals = {}): MediaItem {
     year: m.year || undefined,
     genre: Array.isArray(m.genres) && m.genres.length ? m.genres.map((g) => g.name) : undefined,
     description: m.description || undefined,
-    pages: s.editionPages || m.pages || undefined,
+    pages: s.customPages || s.editionPages || m.pages || undefined,
     duration: m.duration_min ? `${m.duration_min} min` : undefined,
     status: s.status,
     favorite: s.favorite,
@@ -93,6 +97,7 @@ export function toMediaItem(m: BackendMedia, s: Signals = {}): MediaItem {
     review: s.review || undefined,
     note: s.note || undefined,
     editionId: s.editionId || undefined,
+    customPages: s.customPages || undefined,
     dateAdded: s.createdAt ? new Date(s.createdAt * 1000).toISOString() : undefined,
     startedAt: s.startedAt ? new Date(s.startedAt * 1000).toISOString() : undefined,
     finishedAt: s.finishedAt ? new Date(s.finishedAt * 1000).toISOString() : undefined,

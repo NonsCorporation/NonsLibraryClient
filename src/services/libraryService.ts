@@ -24,7 +24,7 @@ export const SHELF_META: Record<ShelfStatus, { key: string; dot: string }> = {
 // Next.js server can reuse them for the public /b and /m pages.
 
 type EditionRef = { id: number; title?: string; cover_url?: string; pages?: number; language?: string }
-type ShelfEntry = { media_id: number; status: ShelfStatus; edition_id?: number; note?: string; private?: boolean; created_at: number; finished_at?: number; last_activity_at?: number; collection_ids?: number[]; media?: BackendMedia; edition?: EditionRef }
+type ShelfEntry = { media_id: number; status: ShelfStatus; edition_id?: number; custom_pages?: number; note?: string; private?: boolean; created_at: number; finished_at?: number; last_activity_at?: number; collection_ids?: number[]; media?: BackendMedia; edition?: EditionRef }
 type FavoriteEntry = { media_id: number; media?: BackendMedia }
 type RatingEntry = { media_id: number; value: number; review?: string; updated_at?: number; media?: BackendMedia }
 
@@ -243,6 +243,9 @@ export interface ILibraryService {
   updateItem(id: string, updates: Partial<MediaItem>): Promise<MediaItem>
   /** Choose the book edition (printing) the user is reading; 0 clears it. */
   setEdition(mediaId: string, editionId: number): Promise<void>
+  /** Override this book's page count for the user (their copy doesn't match the
+   *  edition/work); 0 clears the override. */
+  setCustomPages(mediaId: string, pages: number): Promise<void>
   /** Save (or clear) the user's free-text review. Posts to the feed unless share is false. */
   setReview(mediaId: string, review: string, share?: boolean): Promise<void>
   /** Save (or clear) the user's private note for a shelf item. Never shared. */
@@ -346,6 +349,7 @@ class ApiLibraryService implements ILibraryService {
           editionTitle: e.edition?.title,
           editionCover: e.edition?.cover_url,
           editionPages: e.edition?.pages,
+          customPages: e.custom_pages || undefined,
           collectionIds: e.collection_ids,
         }),
       )
@@ -376,6 +380,7 @@ class ApiLibraryService implements ILibraryService {
           editionTitle: e.edition?.title,
           editionCover: e.edition?.cover_url,
           editionPages: e.edition?.pages,
+          customPages: e.custom_pages || undefined,
           collectionIds: e.collection_ids,
         }),
       )
@@ -552,6 +557,7 @@ class ApiLibraryService implements ILibraryService {
       editionTitle: entry?.edition?.title,
       editionCover: entry?.edition?.cover_url,
       editionPages: entry?.edition?.pages,
+      customPages: entry?.custom_pages || undefined,
       editionLanguage: entry?.edition?.language,
       startedAt: dates.started_at || undefined,
       finishedAt: dates.finished_at || undefined,
@@ -586,6 +592,7 @@ class ApiLibraryService implements ILibraryService {
       editionTitle: entry?.edition?.title,
       editionCover: entry?.edition?.cover_url,
       editionPages: entry?.edition?.pages,
+      customPages: entry?.custom_pages || undefined,
       editionLanguage: entry?.edition?.language,
       createdAt: entry?.created_at,
       startedAt: dates.started_at || undefined,
@@ -790,6 +797,16 @@ class ApiLibraryService implements ILibraryService {
       method: 'PUT',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ edition_id: editionId }),
+    })
+  }
+
+  // Override (or clear, with 0) this book's page count for the user — their copy
+  // doesn't match the catalog edition/work, so progress measures against this.
+  async setCustomPages(mediaId: string, pages: number): Promise<void> {
+    await authedFetch(`/api/shelf/${Number(mediaId)}/custom-pages`, {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ pages }),
     })
   }
 

@@ -1,16 +1,27 @@
 import { useEffect, useState } from 'react'
 import { createPortal } from 'react-dom'
-import { IoClose, IoChevronDown, IoCheckmarkDoneOutline, IoInformationCircle, IoTvOutline } from 'react-icons/io5'
+import { IoClose, IoChevronDown, IoCheckmarkDoneOutline, IoInformationCircle, IoTvOutline, IoPencilOutline } from 'react-icons/io5'
 import { authedFetch } from '@/lib/api'
 import { libraryService } from '@/services/libraryService'
 import type { MediaItem } from '@/types'
 import { useLanguage } from '@/contexts/LanguageContext'
+import { Link } from '@/lib/router'
+import { mediaPath } from '@/lib/paths'
+import ConfirmModal from '@/components/ui/ConfirmModal'
+import CustomPagesHint from '@/components/ui/CustomPagesHint'
 
 type Props = {
   isOpen: boolean
   item: MediaItem | null
-  /** Total pages to measure against — the selected edition's, when set. */
+  /** Total pages to measure against — the reader's own correction if set, else
+   *  the selected edition's, else the work's. */
   total?: number
+  /** The reader's own page-count correction, when they've set one (0/undefined =
+   *  none). When set, `total` reflects it and the modal marks it as custom. */
+  customPages?: number
+  /** Notifies the parent when the reader saves a page-count correction (see the
+   *  "wrong page count?" dialog), so it can update the progress total live. */
+  onCustomPagesChange?: (pages: number) => void
   onClose: () => void
   // Called when the user hits "Finished" — the parent swaps in the ending modal.
   onFinish: () => void
@@ -36,7 +47,7 @@ interface EpisodesResponse {
 // "Update progress" modal: where am I in this book/series? Books track the
 // current page; series tick off watched episodes. The "Finished" button hands
 // off to the ending (rate/review/dates) modal.
-export default function ProgressModal({ isOpen, item, total: totalProp, onClose, onFinish }: Props) {
+export default function ProgressModal({ isOpen, item, total: totalProp, customPages, onCustomPagesChange, onClose, onFinish }: Props) {
   const { t } = useLanguage()
   const isBook = item?.type === 'book'
 
@@ -53,6 +64,13 @@ export default function ProgressModal({ isOpen, item, total: totalProp, onClose,
   // The episode whose info card is showing, anchored to the clicked corner button
   // (rendered via a portal so it isn't clipped by the scrollable season list).
   const [info, setInfo] = useState<{ ep: Episode; x: number; y: number } | null>(null)
+  // A local override of the progress total, applied the moment the reader saves
+  // a page-count correction — so the bar/percent update without waiting for the
+  // parent to refetch signals. Null until they do; the `total` prop wins otherwise.
+  const [customTotal, setCustomTotal] = useState<number | null>(null)
+  const [editingPages, setEditingPages] = useState(false)
+  const [pagesInput, setPagesInput] = useState('')
+  const [currentInput, setCurrentInput] = useState('')
 
   useEffect(() => {
     if (!isOpen || !item) return
@@ -63,6 +81,7 @@ export default function ProgressModal({ isOpen, item, total: totalProp, onClose,
     setEpisodes(null)
     setOpenSeasons({})
     setInfo(null)
+    setCustomTotal(null)
     let cancelled = false
 
     if (item.type === 'book') {
@@ -91,7 +110,11 @@ export default function ProgressModal({ isOpen, item, total: totalProp, onClose,
 
   if (!isOpen || !item) return null
 
-  const total = totalProp || item.pages || 0
+  const total = customTotal ?? (totalProp || item.pages || 0)
+  // Whether `total` is the reader's own correction (this session's save, or one
+  // saved earlier and carried in via `customPages`) rather than the catalog's —
+  // shown with a dotted underline so it reads as user-set.
+  const isCustomTotal = customTotal !== null || (customPages ?? 0) > 0
 
   const inputNum = parseFloat(page)
   const validInput = !Number.isNaN(inputNum) && inputNum >= 0
@@ -109,6 +132,30 @@ export default function ProgressModal({ isOpen, item, total: totalProp, onClose,
   })()
 
   const isOver = mode === 'pages' && total > 0 && inputNum > total
+
+  const openEditPages = () => {
+    setPagesInput(total > 0 ? String(total) : '')
+    setCurrentInput(mode === 'pages' ? page : String(pageNum))
+    setEditingPages(true)
+  }
+
+  const saveCustomPages = () => {
+    const newTotal = parseInt(pagesInput, 10)
+    if (!Number.isNaN(newTotal) && newTotal > 0) {
+      setCustomTotal(newTotal)
+      onCustomPagesChange?.(newTotal)
+      // Persist as a per-user shelf override — best-effort, so the dialog closes
+      // even if the write fails; the local override still reflects the change.
+      libraryService.setCustomPages(item.id, newTotal).catch(() => {})
+    }
+    const newCurrent = parseFloat(currentInput)
+    if (!Number.isNaN(newCurrent) && newCurrent >= 0) {
+      setMode('pages')
+      setPage(String(newCurrent))
+      setSaved(false)
+    }
+    setEditingPages(false)
+  }
 
   const savePage = async () => {
     if (!validInput || inputNum <= 0) return
@@ -237,12 +284,25 @@ export default function ProgressModal({ isOpen, item, total: totalProp, onClose,
               />
               {mode === 'pages' && total > 0 && (
                 <span className={`text-sm ${isOver ? 'text-[#d45c5c]' : 'text-[var(--text-muted)]'}`}>
-                  / {total}
+                  /{' '}
+                  {isCustomTotal ? (
+                    <CustomPagesHint label={t('customPagesHintSelf')}>{total}</CustomPagesHint>
+                  ) : (
+                    total
+                  )}
                 </span>
               )}
               {mode === 'pct' && validInput && (
                 <span className="text-sm text-[var(--text-muted)]">{Math.round(pct)}%</span>
               )}
+              <button
+                type="button"
+                onClick={openEditPages}
+                title={t('wrongPageCount')}
+                className="ml-auto flex h-8 w-8 flex-shrink-0 items-center justify-center rounded-lg text-[var(--text-muted)] transition-colors hover:bg-[var(--surface)] hover:text-nonsprimary"
+              >
+                <IoPencilOutline className="h-4 w-4" />
+              </button>
             </div>
 
             {/* Progress bar */}
@@ -438,6 +498,51 @@ export default function ProgressModal({ isOpen, item, total: totalProp, onClose,
           </>,
           document.body,
         )}
+
+      {editingPages && (
+        <ConfirmModal
+          title={t('wrongPageCount')}
+          confirmText={t('save')}
+          cancelText={t('cancel')}
+          variant="primary"
+          onConfirm={saveCustomPages}
+          onCancel={() => setEditingPages(false)}
+          message={
+            <>
+              <p>{t('wrongPageCountPrompt')}</p>
+              <Link
+                to={mediaPath(item)}
+                onClick={() => { setEditingPages(false); onClose() }}
+                className="mt-2 inline-block font-medium text-nonsprimary hover:underline"
+              >
+                {t('changeEdition')}
+              </Link>
+              <div className="mt-3 flex items-center gap-2">
+                <div className="flex min-w-0 flex-1 flex-col gap-1">
+                  <label className="text-xs font-medium text-[var(--text)]">{t('numberOfPages')}</label>
+                  <input
+                    type="number"
+                    min={1}
+                    value={pagesInput}
+                    onChange={(e) => setPagesInput(e.target.value)}
+                    className="h-8 w-full min-w-0 rounded-lg border border-[var(--border-subtle)] bg-[var(--input)] px-2 text-xs text-[var(--text)] focus:outline-none focus:ring-2 focus:ring-[var(--primary-ring)]"
+                  />
+                </div>
+                <div className="flex min-w-0 flex-1 flex-col gap-1">
+                  <label className="text-xs font-medium text-[var(--text)]">{t('currentPage')}</label>
+                  <input
+                    type="number"
+                    min={0}
+                    value={currentInput}
+                    onChange={(e) => setCurrentInput(e.target.value)}
+                    className="h-8 w-full min-w-0 rounded-lg border border-[var(--border-subtle)] bg-[var(--input)] px-2 text-xs text-[var(--text)] focus:outline-none focus:ring-2 focus:ring-[var(--primary-ring)]"
+                  />
+                </div>
+              </div>
+            </>
+          }
+        />
+      )}
     </div>
   )
 }

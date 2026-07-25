@@ -495,6 +495,10 @@ export default function FeedPage() {
       <ProgressModal
         isOpen={!!progressItem}
         item={progressItem}
+        customPages={progressItem?.customPages}
+        onCustomPagesChange={(pages) =>
+          setProgressItem((prev) => (prev ? { ...prev, customPages: pages, pages } : prev))
+        }
         onClose={() => setProgressItem(null)}
         onFinish={() => { setFinishItem(progressItem); setProgressItem(null) }}
       />
