@@ -456,9 +456,9 @@ export default function Statistics() {
           )}
           {pmode === 'custom' && (
             <>
-              <DatePicker value={cFrom} onChange={setCFrom} max={cTo || undefined} placeholder="—" />
+              <DatePicker value={cFrom} onChange={setCFrom} max={cTo || undefined} placeholder="—" openUp={false} />
               <span className="text-[var(--text-muted)]">–</span>
-              <DatePicker value={cTo} onChange={setCTo} min={cFrom || undefined} placeholder="—" />
+              <DatePicker value={cTo} onChange={setCTo} min={cFrom || undefined} placeholder="—" openUp={false} />
             </>
           )}
 
