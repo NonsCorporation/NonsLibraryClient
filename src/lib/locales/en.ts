@@ -429,7 +429,7 @@ export const en = {
   nonsBadgeFeat4: 'Import & export anytime',
 
   // Sign-in modal — the only sign-in surface (no local accounts)
-  loginModalTitle: 'Nons Library uses your Nons account',
+  loginModalTitle: 'Nons Shelf uses your Nons account',
   loginModalText: 'One account across every nons app. Your profile, friends and privacy settings follow you here — no new sign-up, no new password.',
   loginModalCta: 'Login with nons',
   loginModalNote: 'Sign in once, use every nons app.',
@@ -884,6 +884,7 @@ export const en = {
   aboutIntro1: "Nons Shelf is the books-and-films half of Nons — a small, ad-free platform for tracking what you read and watch, and sharing it with people you actually know.",
   aboutIntro2: "We're a small team based in Chișinău, Moldova 🇲🇩, building Nons because we wanted our own shelf — one place for books and films, without ads or an algorithm deciding what we see.",
   aboutFaqTitle: 'Frequently asked questions',
+  aboutSuggestFeature: 'Want to suggest a feature?',
   aboutFaqQ1: 'What is Nons Shelf?',
   aboutFaqA1: 'Nons Shelf lets you track the books, films and series you read and watch, rate and review them, and see what your friends on Nons are into — all in one shelf.',
   aboutFaqQ2: 'Is it free?',

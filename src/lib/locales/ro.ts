@@ -429,7 +429,7 @@ export const ro = {
   nonsBadgeFeat4: 'Import și export oricând',
 
   // Sign-in modal — the only sign-in surface (no local accounts)
-  loginModalTitle: 'Nons Library folosește contul tău Nons',
+  loginModalTitle: 'Nons Shelf folosește contul tău Nons',
   loginModalText: 'Un singur cont pentru toate aplicațiile nons. Profilul, prietenii și setările de confidențialitate te urmează aici — fără înregistrare nouă, fără parolă nouă.',
   loginModalCta: 'Autentificare cu nons',
   loginModalNote: 'Autentifică-te o dată, folosește orice aplicație nons.',
@@ -813,6 +813,7 @@ export const ro = {
   aboutIntro1: 'Nons Shelf este partea de cărți și filme din Nons — o platformă mică, fără reclame, pentru a urmări ce citești și urmărești, și pentru a împărtăși asta cu oameni pe care îi cunoști cu adevărat.',
   aboutIntro2: 'Suntem o echipă mică din Chișinău, Moldova 🇲🇩, care construiește Nons pentru că ne doream propriul nostru raft — un singur loc pentru cărți și filme, fără reclame și fără un algoritm care decide ce vedem.',
   aboutFaqTitle: 'Întrebări frecvente',
+  aboutSuggestFeature: 'Vrei să sugerezi o funcție?',
   aboutFaqQ1: 'Ce este Nons Shelf?',
   aboutFaqA1: 'Nons Shelf te lasă să urmărești cărțile, filmele și serialele pe care le citești și le urmărești, să le notezi și să scrii recenzii, și să vezi ce citesc și urmăresc prietenii tăi de pe Nons — totul într-un singur raft.',
   aboutFaqQ2: 'Este gratuit?',
